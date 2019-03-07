@@ -39,7 +39,7 @@ def vrotate(positions, theta, vec): # rotation about specified vector
 
 def normalize(vec): #normalize function used in vrotate
     norm = np.linalg.norm(vec)
-    return vec/norm
+    return np.divide(vec,norm)
 
 def main():
     #Example code of how to run
