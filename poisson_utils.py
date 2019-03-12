@@ -58,41 +58,52 @@ def find_minmax(v1,v2,v3):
             z_min = z
     return x_min, y_min, z_min, x_max, y_max, z_max
 
-
-def to_origin(v1,v2,v3):
-    origin_point = find_minmax(v1,v2,v3)[0:3]
-
-    # Translate face such that origin_point is the origin
-    translation = origin_point
-    v1,v2,v3,origin_point = [np.subtract(p, translation) for p in (v1,v2,v3,origin_point)] # make list or dict eventually
+def poisson_sample(v1,v2,v3,k=50,r=1):
     
-    return v1,v2,v3
+    def to_origin(v1,v2,v3):
+        origin_point = find_minmax(v1,v2,v3)[0:3]
 
-def to_xy_plane(v1,v2,v3):
-    # rotate the face to become the xy-plane
-    z_axis = (0.,0.,1.)
-    AB = np.subtract(v2,v1)
-    AC = np.subtract(v3,v1)
+        # Translate face such that origin_point is the origin
+        translation = origin_point
+        v1,v2,v3,origin_point = [np.subtract(p, translation) for p in (v1,v2,v3,origin_point)] # make list or dict eventually
 
-    normal = np.cross(AB, AC)
+        return (v1,v2,v3), translation
 
+    def to_xy_plane(v1,v2,v3):
+        # rotate the face to become the xy-plane
+        z_axis = (0.,0.,1.)
+        AB = np.subtract(v2,v1)
+        AC = np.subtract(v3,v1)
 
-
-    rot_axis = np.cross(normal, z_axis)
-    if (np.linalg.norm(rot_axis) != 0):   
-        # only perform the rotation if the plane was not xy to begin with!
-        angle = np.arccos(np.dot(normal,z_axis)/(np.linalg.norm(normal)*np.linalg.norm(z_axis)))
-        angle = np.rad2deg(angle)
-        v1,v2,v3 = [vrotate(p, angle, rot_axis) for p in (v1,v2,v3)] # make list or dict eventually
-
-    return v1,v2,v3
+        normal = np.cross(AB, AC)
 
 
-def poisson_sample(v1,v2,v3):
+
+        rot_axis = np.cross(normal, z_axis)
+        if (np.linalg.norm(rot_axis) != 0):   
+            # only perform the rotation if the plane was not xy to begin with!
+            angle = np.arccos(np.dot(normal,z_axis)/(np.linalg.norm(normal)*np.linalg.norm(z_axis)))
+            angle = np.rad2deg(angle)
+            v1,v2,v3 = [vrotate(p, angle, rot_axis) for p in (v1,v2,v3)] # make list or dict eventually
+
+        return (v1,v2,v3), rot_axis
     
-    
-    v1,v2,v3 = to_origin(v1,v2,v3)
-    v1,v2,v3 = to_xy_plane(v1,v2,v3)
+    def to_3D(samples, rot_axis, translation):
+        [print(p) for p in (samples)]
+        
+        samples = [np.add(p, (0,y_min,0)) for p in (samples)] # make list or dict eventually
+        #vertices = v1,v2,v3
+
+        if (np.linalg.norm(rot_axis) != 0): 
+            samples = [vrotate(p, angle, -rot_axis) for p in (samples)] # make list or dict eventually
+            #print("rev rot", vertices)
+        samples = [np.add(p, translation) for p in (samples)] # make list or dict eventually
+        
+        return samples
+        
+        
+    (v1,v2,v3), translation = to_origin(v1,v2,v3)
+    (v1,v2,v3), rot_axis  = to_xy_plane(v1,v2,v3)
     
     #translate +y to ensure all points sampled are positive
     y_min = find_minmax(v1,v2,v3)[1]
@@ -100,11 +111,9 @@ def poisson_sample(v1,v2,v3):
     
     # Choose up to k points around each reference point as candidates for a new
     # sample point
-    k = 5
+    # r is Minimum distance between samples
 
-    # Minimum distance between samples
-    r = 0.04
-
+    
     #find width and height of a transformed triangle
 
     width, height = find_width_height( v1, v2, v3 )
@@ -203,25 +212,32 @@ def poisson_sample(v1,v2,v3):
 
 
     # Pick a random point to start with.
-    pt = (np.random.uniform(0, width), np.random.uniform(0, height))
+    pt = (np.random.uniform(0, width), np.random.uniform(0, height), 0)
     while (not is_on_face(pt, v1,v2,v3)):
-        pt = (np.random.uniform(0, width), np.random.uniform(0, height))
+        pt = (np.random.uniform(0, width), np.random.uniform(0, height), 0)
     
     print(pt, is_on_face(pt, v1,v2,v3,True))
 
 
     samples = [pt]
+    samples.append(v1)
+    samples.append(v2)
+    samples.append(v3)
     vertices = [v1[0:2]]
     vertices.append(v2)
     vertices.append(v3)
 
     # Our first sample is indexed at 0 in the samples list...
     cells[get_cell_coords(pt)] = 0
+    cells[get_cell_coords(v1)] = 1
+    cells[get_cell_coords(v2)] = 2
+    cells[get_cell_coords(v3)] = 3
+
     # ... and it is active, in the sense that we're going to look for more points
     # in its neighbourhood.
-    active = [0]
+    active = [0,1,2,3]
 
-    nsamples = 1
+    nsamples = 4
     # As long as there are points in the active list, keep trying to find samples.
     while active:
         # choose a random "reference" point from the active list.
@@ -230,6 +246,7 @@ def poisson_sample(v1,v2,v3):
         # Try to pick a new point relative to the reference point.
         pt = get_point(k, refpt)
         if pt:
+            #print(pt)
             # Point pt is valid: add it to the samples list and mark it as active
             samples.append(pt)
             nsamples += 1
@@ -240,19 +257,10 @@ def poisson_sample(v1,v2,v3):
             # from the list of "active" points.
             active.remove(idx)
 
+    samples = to_3D(samples, rot_axis, translation)
     #print(samples)
-    return(samples, vertices)
-
-
-
-
-#     plt.scatter(*zip(*samples), color='g', alpha=0.6, lw=0)
-#     plt.scatter(*zip(*vertices), color='r', alpha=0.6, lw=0)
-#     plt.xlim(-0.25, width+0.25)
-#     plt.ylim(-0.25, height+0.25)
-#     plt.axis('on')
-#     plt.show()
-
+      
+    return samples
 
 
 
