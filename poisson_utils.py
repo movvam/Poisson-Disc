@@ -1,29 +1,33 @@
 import numpy as np
 from rotations import *
+from pyntcloud.geometry.areas import *
+import math
 
 def is_on_face(s,a,b,c, debug=False):
     # s is the new point
     # function assumes the face has been transformed to the xy-plane
-    as_x = s[0]-a[0]
-    as_y = s[1]-a[1]
-
-    s_ab = (b[0]-a[0])*as_y-(b[1]-a[1])*as_x < 0;
-
-    if((c[0]-a[0])*as_y-(c[1]-a[1])*as_x > 0 == s_ab): 
-        # is the point s to the left of or to the right of
-        # both the lines AB and AC? If true, it can't be inside.
-        if debug:
-            print("not on face, case 1")
-        return False
-
-    if((c[0]-b[0])*(s[1]-b[1])-(c[1]-b[1])*(s[0]-b[0]) > 0 != s_ab): 
-        # the point is between the "cones"
-        # checking if point is outside the remaining boundary
-        if debug:
-            print("not on face, case 2")
-        return False
-
-    return True;
+    if len(s) == 2:
+        s = (s[0],s[1],0)
+    
+    
+    # Calculate area of triangle ABC 
+    A = triangle_area((a,b,c)) #(a[0], a[1], b[0], b[1], c[0], c[1]) 
+  
+    # Calculate area of triangle PBC  
+    A1 = triangle_area((s,b,c))#area (s[0], s[1], b[0], b[1], c[0], c[1]) 
+      
+    # Calculate area of triangle PAC  
+    A2 = triangle_area((a,s,c))#area (a[0], a[1], s[0], s[1], c[0], c[1]) 
+      
+    # Calculate area of triangle PAB  
+    A3 = triangle_area((a,b,s)) #area (a[0], a[1], b[0], b[1], s[0], s[1]) 
+      
+    # Check if sum of A1, A2 and A3  
+    # is same as A 
+    if (debug == True):
+        print(">>",A,(A1 + A2 + A3))
+        
+    return math.isclose(A, (A1 + A2 + A3), abs_tol=10**-1)
 
 
 def find_width_height(v1,v2,v3):
@@ -71,6 +75,7 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
 
     def to_xy_plane(v1,v2,v3):
         # rotate the face to become the xy-plane
+        angle = None
         z_axis = (0.,0.,1.)
         AB = np.subtract(v2,v1)
         AC = np.subtract(v3,v1)
@@ -86,11 +91,12 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
             angle = np.rad2deg(angle)
             v1,v2,v3 = [vrotate(p, angle, rot_axis) for p in (v1,v2,v3)] # make list or dict eventually
 
-        return (v1,v2,v3), rot_axis
+        return (v1,v2,v3), rot_axis, angle
     
-    def to_3D(samples, rot_axis, translation):
-        [print(p) for p in (samples)]
+    def to_3D(samples, rot_axis, translation, angle):
+        #[print(p) for p in (samples)]
         
+        samples = [np.add(p, (x_min,0,0)) for p in (samples)] # make list or dict eventually
         samples = [np.add(p, (0,y_min,0)) for p in (samples)] # make list or dict eventually
         #vertices = v1,v2,v3
 
@@ -103,16 +109,16 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
         
         
     (v1,v2,v3), translation = to_origin(v1,v2,v3)
-    (v1,v2,v3), rot_axis  = to_xy_plane(v1,v2,v3)
+    (v1,v2,v3), rot_axis, angle  = to_xy_plane(v1,v2,v3)
+    
+    print("translated!!", v1,v2,v3)
     
     #translate +y to ensure all points sampled are positive
     y_min = find_minmax(v1,v2,v3)[1]
     v1,v2,v3 = [np.subtract(p, (0,y_min,0)) for p in (v1,v2,v3)] 
+    x_min = find_minmax(v1,v2,v3)[0]
+    v1,v2,v3 = [np.subtract(p, (x_min,0,0)) for p in (v1,v2,v3)] 
     
-    # Choose up to k points around each reference point as candidates for a new
-    # sample point
-    # r is Minimum distance between samples
-
     
     #find width and height of a transformed triangle
 
@@ -200,6 +206,7 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
             pt = refpt[0] + rho*np.cos(theta), refpt[1] + rho*np.sin(theta), 0
             if not (0 <= pt[0] < width and 0 <= pt[1] < height):
                 # This point falls outside the domain of the grid, so try again.
+                i += 1
                 continue
             if point_valid(pt) and is_on_face(pt, v1, v2, v3):
                 return pt
@@ -212,32 +219,42 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
 
 
     # Pick a random point to start with.
-    pt = (np.random.uniform(0, width), np.random.uniform(0, height), 0)
-    while (not is_on_face(pt, v1,v2,v3)):
+    samples = []
+    active = []
+    l=1000
+    while l > 0:
+        l=l-1
         pt = (np.random.uniform(0, width), np.random.uniform(0, height), 0)
-    
-    print(pt, is_on_face(pt, v1,v2,v3,True))
+        if is_on_face(pt, v1,v2,v3):
+            samples = [pt]
+            # Our first sample is indexed at 0 in the samples list...
+            cells[get_cell_coords(pt)] = len(samples) - 1
+            # ... and it is active, in the sense that we're going to look for more points
+            # in its neighbourhood.
+            active = [0]
+            break;
 
 
-    samples = [pt]
     samples.append(v1)
+    cells[get_cell_coords(v1)] = len(samples) - 1
+    active.append(len(samples) - 1)
+
     samples.append(v2)
+    cells[get_cell_coords(v2)] = len(samples) - 1
+    active.append(len(samples) - 1)
+
     samples.append(v3)
+    cells[get_cell_coords(v3)] = len(samples) - 1
+    active.append(len(samples) - 1)
+
     vertices = [v1[0:2]]
     vertices.append(v2)
     vertices.append(v3)
 
-    # Our first sample is indexed at 0 in the samples list...
-    cells[get_cell_coords(pt)] = 0
-    cells[get_cell_coords(v1)] = 1
-    cells[get_cell_coords(v2)] = 2
-    cells[get_cell_coords(v3)] = 3
 
-    # ... and it is active, in the sense that we're going to look for more points
-    # in its neighbourhood.
-    active = [0,1,2,3]
 
-    nsamples = 4
+
+    nsamples = len(samples)
     # As long as there are points in the active list, keep trying to find samples.
     while active:
         # choose a random "reference" point from the active list.
@@ -257,10 +274,10 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
             # from the list of "active" points.
             active.remove(idx)
 
-    samples = to_3D(samples, rot_axis, translation)
+    #samples = to_3D(samples, rot_axis, translation, angle)
     #print(samples)
       
-    return samples
+    return samples,vertices
 
 
 
