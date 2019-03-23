@@ -3,6 +3,29 @@ from rotations import *
 from pyntcloud.geometry.areas import *
 import math
 
+
+def determine_z(v1,v2,v3, pt):
+    # ---------------------------
+    # given x and y, determines z on the plane
+    # ---------------------------
+    
+    x = pt[0]
+    y = pt[1]
+    
+    AB = np.subtract(v2,v1)
+    AC = np.subtract(v3,v1)
+
+
+    (r,s,t) = (AB[1]*AC[2]-AB[2]*AC[1]) , (AB[2]*AC[0]-AB[0]*AC[2]) , (AB[0]*AC[1]-AB[1]*AC[0])
+
+    if t == 0:
+        raise ValueError("cannot determine z from x and y for this plane", r, s, t)
+
+    k = r*v1[0] + s*v1[1] + t*v1[2] 
+
+    𝑧 =(1/t)*((r*v1[0])+(𝑠*v1[1])+(t*v1[2])-(r*x)-(s*y))
+    return z
+
 def is_on_face(s,a,b,c, debug=False):
     # s is the new point
     # function assumes the face has been transformed to the xy-plane
@@ -110,8 +133,6 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
         
     (v1,v2,v3), translation = to_origin(v1,v2,v3)
     (v1,v2,v3), rot_axis, angle  = to_xy_plane(v1,v2,v3)
-    
-    print("translated!!", v1,v2,v3)
     
     #translate +y to ensure all points sampled are positive
     y_min = find_minmax(v1,v2,v3)[1]
@@ -274,8 +295,8 @@ def poisson_sample(v1,v2,v3,k=50,r=1):
             # from the list of "active" points.
             active.remove(idx)
 
-    #samples = to_3D(samples, rot_axis, translation, angle)
-    #print(samples)
+    for pt in samples:
+        pt = (pt[0],pt[1],determine_z(v1,v2,v3,pt))
       
     return samples,vertices
 
